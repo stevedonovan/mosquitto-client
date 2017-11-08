@@ -1,0 +1,13 @@
+[package]
+name = "mosquitto-client"
+version = "0.1.1"
+authors = ["Steve Donovan <steved@eiq.co.za>"]
+
+description = "Rust interface to the Mosquitto MQTT broker client"
+documentation = "https://docs.rs/mosquitto-client"
+repository = "https://github.com/stevedonovan/mosquitto-client.git"
+readme = "readme.md"
+license="MIT"
+
+keywords = ["MQTT","mosquitto","client","pubsub"]
+
