@@ -62,14 +62,14 @@ pub struct MosqMessage {
     owned: bool
 }
 
-use std::mem; 
+use std::mem;
 
 #[link(name = "c")]
 extern {
     fn malloc(size: usize) -> *mut u8;
 }
 
-impl MosqMessage {    
+impl MosqMessage {
     fn new(msg: *const Message, clone: bool) -> MosqMessage {
         if clone {
             unsafe {
@@ -90,7 +90,7 @@ impl MosqMessage {
     pub fn topic(&self) -> &str {
         unsafe { CStr::from_ptr(self.msg_ref().topic).to_str().expect("Topic was not UTF-8")  }
     }
-    
+
     /// the payload as bytes
     pub fn payload(&self) -> &[u8] {
         let msg = self.msg_ref();
@@ -103,7 +103,7 @@ impl MosqMessage {
     }
 
     /// the payload as text.
-    /// This will panic if the payload was not valid UTF-8    
+    /// This will panic if the payload was not valid UTF-8
     pub fn text(&self) -> &str {
         ::std::str::from_utf8(self.payload()).expect("Payload was not UTF-8")
     }
@@ -113,7 +113,7 @@ impl MosqMessage {
     pub fn qos(&self) -> u32 {
         self.msg_ref().qos as u32
     }
-    
+
     /// was the message retained by the broker?
     pub fn retained(&self) -> bool {
         if self.msg_ref().retain > 0 {true} else {false}
@@ -155,7 +155,7 @@ impl TopicMatcher {
     fn new(sub: CString, mid: i32) -> TopicMatcher {
         TopicMatcher{sub: sub, mid: mid}
     }
-    
+
     /// true if a message matches a subscription topic
     pub fn matches(&self, msg: &MosqMessage) -> bool {
         let mut matched: u8 = 0;
@@ -212,7 +212,7 @@ impl Mosquitto {
             owned: true
         }
     }
-    
+
     /// create a Callback object so you can listen to events.
     pub fn callbacks<'a,T>(&'a self, data: T) -> Callbacks<'a,T> {
         Callbacks::new(self,data)
@@ -246,7 +246,7 @@ impl Mosquitto {
             Err(Error::new("subscribe",rc))
         }
     }
-    
+
     /// unsubcribe from an MQTT topic - on_unsubscribe will be called.
     pub fn unsubscribe(&self, sub: &str) -> Result<i32> {
         let mut mid = 0;
@@ -259,7 +259,7 @@ impl Mosquitto {
     }
 
     /// publish an MQTT message to the broker, returning message id.
-    /// Quality-of-service and whether retained can be specified.    
+    /// Quality-of-service and whether retained can be specified.
     /// To be sure, check the message id passed to the on_publish callback
     pub fn publish(&self, topic: &str, payload: &[u8], qos: u32, retain: bool) -> Result<i32> {
         let mut mid = 0;
@@ -283,7 +283,7 @@ impl Mosquitto {
             mosquitto_disconnect(self.mosq)
         })
     }
-    
+
     /// process network events for at most `timeout` milliseconds.
     /// -1 will mean the default, 1000ms.
     pub fn do_loop(&self, timeout: i32) -> Result<()> {
@@ -300,15 +300,15 @@ impl Mosquitto {
             mosquitto_loop_forever(self.mosq,timeout as c_int,1)
         })
     }
-    
+
     /// loop forever, but do not regard an explicit disconnect as an error.
     pub fn loop_until_disconnect(&self, timeout: i32) -> Result<()> {
-       if let Err(e) = self.loop_forever(timeout) {            
+       if let Err(e) = self.loop_forever(timeout) {
             if e.error() == sys::MOSQ_ERR_NO_CONN {
                 Ok(())
             } else { // errror handling......!
                 Err(e)
-            }                    
+            }
         } else {
             Ok(())
         }
@@ -379,11 +379,11 @@ pub struct Callbacks<'a,T> {
     log_callback: Option<Box<Fn(&mut T,u32,&str) + 'a>>,
     mosq: &'a Mosquitto,
     init: bool,
-    pub data: T,    
+    pub data: T,
 }
 
 impl <'a,T> Callbacks<'a,T> {
-    
+
     /// create a new callback handler with data.
     /// Initialize with an existing Mosquitto reference.
     pub fn new(mosq: &Mosquitto, data: T) -> Callbacks<T> {
@@ -398,14 +398,14 @@ impl <'a,T> Callbacks<'a,T> {
             mosq: mosq,
             init: false,
             data: data
-        }        
+        }
     }
-    
+
     /// a reference to the Mosquitto instance
     pub fn mosq(&self) -> &Mosquitto {
         self.mosq
     }
-    
+
     fn initialize(&mut self) {
         if ! self.init {
             self.init = true;
@@ -415,7 +415,7 @@ impl <'a,T> Callbacks<'a,T> {
             };
         }
     }
-    
+
     /// provide a closure which will be called when messages arrive.
     /// You are passed a mutable reference to data and the message
     pub fn on_message<C: Fn(&mut T,MosqMessage) + 'a>(&mut self, callback: C) {
@@ -441,13 +441,13 @@ impl <'a,T> Callbacks<'a,T> {
     }
 
     /// provide a closure which is called after subscribing.
-    /// You are passed a mutable reference to data and the subscription id.    
+    /// You are passed a mutable reference to data and the subscription id.
     pub fn on_subscribe<C: Fn(&mut T,i32) + 'a>(&mut self, callback: C) {
         self.initialize();
         unsafe {mosquitto_subscribe_callback_set(self.mosq.mosq,mosq_subscribe_callback::<T>);}
         self.subscribe_callback = Some(Box::new(callback));
     }
-    
+
     /// provide a closure which is called after unsubscribing from a topic
     /// You are passed a mutable reference to data and the subscription id.
     pub fn on_unsubscribe<C: Fn(&mut T,i32) + 'a>(&mut self, callback: C) {
@@ -463,35 +463,43 @@ impl <'a,T> Callbacks<'a,T> {
         unsafe {mosquitto_disconnect_callback_set(self.mosq.mosq,mosq_disconnect_callback::<T>);}
         self.disconnect_callback = Some(Box::new(callback));
     }
-    
+
     /// provide a closure which is called for each log message
     /// You are passed a mutable reference to data, a logging level,
-    /// and the text of the log message    
+    /// and the text of the log message
     pub fn on_log<C: Fn(&mut T,u32,&str) + 'a>(&mut self, callback: C) {
         self.initialize();
         unsafe {mosquitto_log_callback_set(self.mosq.mosq,mosq_log_callback::<T>);}
         self.log_callback = Some(Box::new(callback));
     }
-    
+
 }
 
 
+// clean up with a macro (suprisingly hard to write as a function)
+macro_rules! callback_ref {
+    ($data:expr,$T:ident) =>
+    {
+        unsafe {&mut *($data as *mut Callbacks<$T>)}
+    }
+}
+
 extern fn mosq_connect_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
-    let this = unsafe {&mut *(data as *mut Callbacks<T>)};
+    let this = callback_ref!(data,T);
     if let Some(ref callback) = this.connect_callback {
         callback(&mut this.data, rc as i32);
     }
 }
 
 extern fn mosq_publish_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
-    let this = unsafe {&mut *(data as *mut Callbacks<T>)};
+    let this = callback_ref!(data,T);
     if let Some(ref callback) = this.publish_callback {
         callback(&mut this.data, rc as i32);
     }
 }
 
 extern fn mosq_message_callback<T>(_: *const Mosq, data: *mut Data, message: *const Message) {
-    let mut this = unsafe {&mut *(data as *mut Callbacks<T>)};
+    let this = callback_ref!(data,T);
     //println!("msg {:?}", unsafe {&*message});
     if let Some(ref callback) = this.message_callback {
         callback(&mut this.data, MosqMessage::new(message,false));
@@ -499,28 +507,28 @@ extern fn mosq_message_callback<T>(_: *const Mosq, data: *mut Data, message: *co
 }
 
 extern fn mosq_subscribe_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
-    let this = unsafe {&mut *(data as *mut Callbacks<T>)};
+    let this = callback_ref!(data,T);
     if let Some(ref callback) = this.subscribe_callback {
         callback(&mut this.data, rc as i32);
     }
 }
 
 extern fn mosq_unsubscribe_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
-    let this = unsafe {&mut *(data as *mut Callbacks<T>)};
+    let this = callback_ref!(data,T);
     if let Some(ref callback) = this.unsubscribe_callback {
         callback(&mut this.data, rc as i32);
     }
 }
 
 extern fn mosq_disconnect_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
-    let this = unsafe {&mut *(data as *mut Callbacks<T>)};
+    let this = callback_ref!(data,T);
     if let Some(ref callback) = this.disconnect_callback {
         callback(&mut this.data, rc as i32);
     }
 }
 
 extern fn mosq_log_callback<T>(_: *const Mosq, data: *mut Data, level: c_int, text: *const c_char) {
-    let this = unsafe {&mut *(data as *mut Callbacks<T>)};
+    let this = callback_ref!(data,T);
     let text = unsafe { CStr::from_ptr(text).to_str().expect("log text was not UTF-8")  };
     if let Some(ref callback) = this.log_callback {
         callback(&mut this.data, level as u32, text);
