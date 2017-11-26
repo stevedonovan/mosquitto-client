@@ -35,6 +35,7 @@ pub const MOSQ_CONNECT_ERR_OK:i32 = 0;
 pub const MOSQ_CONNECT_ERR_PROTOCOL:i32 = 1;
 pub const MOSQ_CONNECT_ERR_BADID:i32 = 2;
 pub const MOSQ_CONNECT_ERR_NOBROKER:i32 = 3;
+pub const MOSQ_CONNECT_ERR_TIMEOUT:i32 = 256;
 
 pub type Mosq = c_int;
 pub type Data = c_int;
@@ -63,7 +64,7 @@ extern {
     pub fn mosquitto_strerror(err: c_int) -> *const c_char;
     pub fn mosquitto_user_data_set(mosq: *const Mosq, obj: *const Data);
     pub fn mosquitto_threaded_set(mosq: *const Mosq, threaded: u8) -> c_int;
-    
+
     pub fn mosquitto_connect_callback_set(mosq: *const Mosq,
         callback: extern fn(*const Mosq, *mut Data, c_int)
     );
@@ -73,7 +74,7 @@ extern {
     pub fn mosquitto_subscribe_callback_set(mosq: *const Mosq,
         callback: extern fn(*const Mosq, *mut Data, c_int)
     );
-    
+
     pub fn mosquitto_message_callback_set(mosq: *const Mosq,
         callback: extern fn(*const Mosq, *mut Data, *const Message)
     );
@@ -84,14 +85,14 @@ extern {
     pub fn mosquitto_unsubscribe_callback_set(mosq: *const Mosq,
         callback: extern fn(*const Mosq, *mut Data, c_int)
     );
-    
+
     pub fn mosquitto_log_callback_set(mosq: *const Mosq,
         callback: extern fn(*const Mosq, *mut Data, c_int, *const c_char)
-    );    
-    
+    );
+
     pub fn mosquitto_message_copy(copy: *mut Message, msg: *const Message) -> c_int;
     pub fn mosquitto_message_free(msg: *const *const Message);
-    
+
     pub fn mosquitto_subscribe(mosq: *const Mosq, mid: *mut c_int, sub: *const c_char, qos: c_int) -> c_int;
     pub fn mosquitto_unsubscribe(mosq: *const Mosq,mid: *mut c_int, sub: *const c_char) -> c_int;
 

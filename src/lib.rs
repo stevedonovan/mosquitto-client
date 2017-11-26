@@ -2,6 +2,7 @@ use std::os::raw::{c_int,c_char};
 use std::ffi::{CStr,CString};
 use std::error;
 use std::fmt;
+use std::time::{Duration,SystemTime};
 use std::fmt::{Display,Debug};
 use std::ptr::null;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
@@ -12,11 +13,23 @@ pub mod sys;
 
 use sys::*;
 
+fn connect_error(rc: i32) -> &'static str {
+    match rc {
+    MOSQ_CONNECT_ERR_OK => "connect: ok",
+    MOSQ_CONNECT_ERR_PROTOCOL => "connect: bad protocol version",
+    MOSQ_CONNECT_ERR_BADID => "connect: id rejected",
+    MOSQ_CONNECT_ERR_NOBROKER => "connect: broker unavailable",
+    MOSQ_CONNECT_ERR_TIMEOUT => "connect: timed out",
+    _ => "connect: unknown"
+    }
+}
+
 /// Our Error type
 #[derive(Debug)]
 pub struct Error {
     text: String,
-    errcode: i32
+    errcode: i32,
+    connect: bool,
 }
 
 impl Display for Error {
@@ -30,10 +43,15 @@ pub type Result<T> = ::std::result::Result<T,Error>;
 impl Error {
     /// create a new error
     pub fn new(msg: &str, rc: c_int) -> Error {
-        Error{text: format!("{}: {}",msg,mosq_strerror(rc)), errcode: rc}
+        Error{text: format!("{}: {}",msg,mosq_strerror(rc)), errcode: rc, connect: false}
     }
 
-    pub fn result(call: &str, rc: c_int) -> Result<()> {
+    /// create a new connection error
+    pub fn new_connect(rc: c_int) -> Error {
+        Error{text: connect_error(rc).into(), errcode: rc, connect: true}
+    }
+
+    fn result(call: &str, rc: c_int) -> Result<()> {
         if rc != 0 {
             Err(Error::new(call,rc))
         } else {
@@ -41,6 +59,7 @@ impl Error {
         }
     }
 
+    /// underlying error code
     pub fn error(&self) -> i32 {
         self.errcode
     }
@@ -86,7 +105,8 @@ impl MosqMessage {
         unsafe { &*self.msg }
     }
 
-    /// the topic of the message
+    /// the topic of the message.
+    /// This will **panic** if the topic isn't valid UTF-8
     pub fn topic(&self) -> &str {
         unsafe { CStr::from_ptr(self.msg_ref().topic).to_str().expect("Topic was not UTF-8")  }
     }
@@ -103,7 +123,7 @@ impl MosqMessage {
     }
 
     /// the payload as text.
-    /// This will panic if the payload was not valid UTF-8
+    /// This will **panic(( if the payload was not valid UTF-8
     pub fn text(&self) -> &str {
         ::std::str::from_utf8(self.payload()).expect("Payload was not UTF-8")
     }
@@ -190,7 +210,6 @@ pub fn version() -> Version {
     Version{major: major as u32,minor: minor as u32,revision: revision as u32}
 }
 
-
 /// A thin wrapper around mosquitto objects.
 pub struct Mosquitto {
     mosq: *const Mosq,
@@ -226,6 +245,29 @@ impl Mosquitto {
              mosquitto_connect(self.mosq,cs(host).as_ptr(),port as c_int,0)
         })
     }
+
+    /// connect to the broker, waiting for success.
+    pub fn connect_wait(&self, host: &str, port: u32, millis: i32) -> Result<()> {
+        self.connect(host,port)?;
+        let t = SystemTime::now();
+        let wait = Duration::from_millis(millis as u64);
+        let mut callback = self.callbacks(MOSQ_CONNECT_ERR_TIMEOUT);
+        callback.on_connect(|data, rc| {
+            *data = rc;
+        });
+        loop {
+            self.do_loop(millis)?;
+            if callback.data == MOSQ_CONNECT_ERR_OK {
+                return Ok(())
+            };
+            if t.elapsed().unwrap() > wait {
+                break;
+            }
+        }
+        Err(Error::new_connect(callback.data))
+
+    }
+
 
     //~ pub fn threaded(&self) {
         //~ unsafe { mosquitto_threaded_set(self.mosq,1); }
@@ -276,6 +318,28 @@ impl Mosquitto {
             Err(Error::new("publish",rc))
         }
     }
+
+    /// publish an MQTT message to the broker, returning message id after waiting for successful publish
+    pub fn publish_wait(&self, topic: &str, payload: &[u8], qos: u32, retain: bool, millis: i32) -> Result<i32> {
+        let our_mid = self.publish(topic,payload,qos,retain)?;
+        let t = SystemTime::now();
+        let wait = Duration::from_millis(millis as u64);
+        let mut callback = self.callbacks(0);
+        callback.on_publish(|data, mid| {
+            *data = mid;
+        });
+        loop {
+            self.do_loop(millis)?;
+            if callback.data == our_mid {
+                return Ok(our_mid)
+            };
+            if t.elapsed().unwrap() > wait {
+                break;
+            }
+        }
+        Err(Error::new("publish",MOSQ_ERR_UNKNOWN))
+    }
+
 
     /// explicitly disconnect from the broker.
     pub fn disconnect(&self) -> Result<()> {
@@ -475,6 +539,14 @@ impl <'a,T> Callbacks<'a,T> {
 
 }
 
+impl <'a,T>Drop for Callbacks<'a,T> {
+    fn drop(&mut self) {
+        unsafe {
+            mosquitto_user_data_set(self.mosq.mosq, null() as *const Data);
+        }
+    }
+}
+
 
 // clean up with a macro (suprisingly hard to write as a function)
 macro_rules! callback_ref {
@@ -485,6 +557,7 @@ macro_rules! callback_ref {
 }
 
 extern fn mosq_connect_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
+    if data.is_null() { return; }
     let this = callback_ref!(data,T);
     if let Some(ref callback) = this.connect_callback {
         callback(&mut this.data, rc as i32);
@@ -492,6 +565,7 @@ extern fn mosq_connect_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
 }
 
 extern fn mosq_publish_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
+    if data.is_null() { return; }
     let this = callback_ref!(data,T);
     if let Some(ref callback) = this.publish_callback {
         callback(&mut this.data, rc as i32);
@@ -499,6 +573,7 @@ extern fn mosq_publish_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
 }
 
 extern fn mosq_message_callback<T>(_: *const Mosq, data: *mut Data, message: *const Message) {
+    if data.is_null() { return; }
     let this = callback_ref!(data,T);
     //println!("msg {:?}", unsafe {&*message});
     if let Some(ref callback) = this.message_callback {
@@ -507,6 +582,7 @@ extern fn mosq_message_callback<T>(_: *const Mosq, data: *mut Data, message: *co
 }
 
 extern fn mosq_subscribe_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
+    if data.is_null() { return; }
     let this = callback_ref!(data,T);
     if let Some(ref callback) = this.subscribe_callback {
         callback(&mut this.data, rc as i32);
@@ -514,6 +590,7 @@ extern fn mosq_subscribe_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int)
 }
 
 extern fn mosq_unsubscribe_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
+    if data.is_null() { return; }
     let this = callback_ref!(data,T);
     if let Some(ref callback) = this.unsubscribe_callback {
         callback(&mut this.data, rc as i32);
@@ -521,6 +598,7 @@ extern fn mosq_unsubscribe_callback<T>(_: *const Mosq, data: *mut Data, rc: c_in
 }
 
 extern fn mosq_disconnect_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int) {
+    if data.is_null() { return; }
     let this = callback_ref!(data,T);
     if let Some(ref callback) = this.disconnect_callback {
         callback(&mut this.data, rc as i32);
@@ -528,6 +606,7 @@ extern fn mosq_disconnect_callback<T>(_: *const Mosq, data: *mut Data, rc: c_int
 }
 
 extern fn mosq_log_callback<T>(_: *const Mosq, data: *mut Data, level: c_int, text: *const c_char) {
+    if data.is_null() { return; }
     let this = callback_ref!(data,T);
     let text = unsafe { CStr::from_ptr(text).to_str().expect("log text was not UTF-8")  };
     if let Some(ref callback) = this.log_callback {
