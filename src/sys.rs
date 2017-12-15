@@ -21,6 +21,9 @@ pub const MOSQ_ERR_ERRNO:i32 = 14;
 pub const MOSQ_ERR_EAI:i32 = 15;
 pub const MOSQ_ERR_PROXY:i32 = 16;
 
+// extended error
+pub const MOSQ_ERR_TIMEOUT:i32 = 16;
+
 pub const MOSQ_LOG_NONE:i32 = 0x00;
 pub const MOSQ_LOG_INFO:i32 = 0x01;
 pub const MOSQ_LOG_NOTICE:i32 = 0x02;
@@ -35,6 +38,8 @@ pub const MOSQ_CONNECT_ERR_OK:i32 = 0;
 pub const MOSQ_CONNECT_ERR_PROTOCOL:i32 = 1;
 pub const MOSQ_CONNECT_ERR_BADID:i32 = 2;
 pub const MOSQ_CONNECT_ERR_NOBROKER:i32 = 3;
+
+// extended error
 pub const MOSQ_CONNECT_ERR_TIMEOUT:i32 = 256;
 
 pub type Mosq = c_int;
@@ -108,8 +113,23 @@ extern {
 
 pub fn mosq_strerror(rc: c_int) -> String {
     unsafe {
+        if rc == MOSQ_ERR_TIMEOUT {
+            return "timeout".into();
+        }
         let errs = mosquitto_strerror(rc);
         CStr::from_ptr(errs).to_str().unwrap().to_string()
     }
 }
+
+pub fn connect_error(rc: i32) -> &'static str {
+    match rc {
+    MOSQ_CONNECT_ERR_OK => "connect: ok",
+    MOSQ_CONNECT_ERR_PROTOCOL => "connect: bad protocol version",
+    MOSQ_CONNECT_ERR_BADID => "connect: id rejected",
+    MOSQ_CONNECT_ERR_NOBROKER => "connect: broker unavailable",
+    MOSQ_CONNECT_ERR_TIMEOUT => "connect: timed out",
+    _ => "connect: unknown"
+    }
+}
+
 

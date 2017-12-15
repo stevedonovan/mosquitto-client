@@ -13,17 +13,6 @@ pub mod sys;
 
 use sys::*;
 
-fn connect_error(rc: i32) -> &'static str {
-    match rc {
-    MOSQ_CONNECT_ERR_OK => "connect: ok",
-    MOSQ_CONNECT_ERR_PROTOCOL => "connect: bad protocol version",
-    MOSQ_CONNECT_ERR_BADID => "connect: id rejected",
-    MOSQ_CONNECT_ERR_NOBROKER => "connect: broker unavailable",
-    MOSQ_CONNECT_ERR_TIMEOUT => "connect: timed out",
-    _ => "connect: unknown"
-    }
-}
-
 /// Our Error type
 #[derive(Debug)]
 pub struct Error {
@@ -41,7 +30,7 @@ impl Display for Error {
 pub type Result<T> = ::std::result::Result<T,Error>;
 
 impl Error {
-    /// create a new error
+    /// create a new Mosquitto error
     pub fn new(msg: &str, rc: c_int) -> Error {
         Error{text: format!("{}: {}",msg,mosq_strerror(rc)), errcode: rc, connect: false}
     }
@@ -165,15 +154,16 @@ impl Drop for MosqMessage {
 
 /// Matching subscription topics.
 /// Returned from Mosquitto::subscribe.
-pub struct TopicMatcher {
+pub struct TopicMatcher<'a> {
     sub: CString,
     /// the subscription id.
-    pub mid: i32
+    pub mid: i32,
+    mosq: &'a Mosquitto,
 }
 
-impl TopicMatcher {
-    fn new(sub: CString, mid: i32) -> TopicMatcher {
-        TopicMatcher{sub: sub, mid: mid}
+impl <'a>TopicMatcher<'a> {
+    fn new(sub: CString, mid: i32, mosq: &'a Mosquitto) -> TopicMatcher<'a> {
+        TopicMatcher{sub: sub, mid: mid, mosq: mosq}
     }
 
     /// true if a message matches a subscription topic
@@ -183,6 +173,45 @@ impl TopicMatcher {
              mosquitto_topic_matches_sub(self.sub.as_ptr(),msg.msg_ref().topic, &mut matched);
         }
         if matched > 0 {true} else {false}
+    }
+
+    fn receive(&self, millis: i32, just_one: bool) -> Result<Vec<MosqMessage>> {
+        let t = Instant::now();
+        let wait = Duration::from_millis(millis as u64);
+        let mut mc = self.mosq.callbacks(Vec::new());
+        mc.on_message(|data,msg| {
+            if self.matches(&msg) {
+                data.push(MosqMessage::new(msg.msg,true));
+            }
+        });
+
+        while t.elapsed() < wait {
+            self.mosq.do_loop(millis)?;
+            if just_one && mc.data.len() > 0 {
+                break;
+            }
+        }
+
+        if mc.data.len() > 0 { // we got mail!
+            // take results out of the sticky grip of mc data
+            let mut res = Vec::new();
+            ::std::mem::swap(&mut mc.data, &mut res);
+            Ok(res)
+        } else { // no messages considered an Error...
+            Err(Error::new("receive",MOSQ_ERR_TIMEOUT))
+        }
+
+    }
+
+    /// receive and return messages matching this topic, until timeout
+    pub fn receive_many(&self, millis: i32) -> Result<Vec<MosqMessage>> {
+        self.receive(millis,false)
+    }
+
+
+    /// receive and return exactly one message matching this topic
+    pub fn receive_one(&self, millis: i32) -> Result<MosqMessage> {
+        self.receive(millis,true).map(|mut v| v.pop().unwrap())
     }
 }
 
@@ -278,12 +307,12 @@ impl Mosquitto {
     /// against received messages, and has a `mid` field identifying
     /// the subscribing request. on_subscribe will be called with this
     /// identifier.
-    pub fn subscribe(&self, sub: &str, qos: u32) -> Result<TopicMatcher> {
+    pub fn subscribe<'a>(&'a self, sub: &str, qos: u32) -> Result<TopicMatcher<'a>> {
         let mut mid: c_int = 0;
         let sub = cs(sub);
         let rc = unsafe { mosquitto_subscribe(self.mosq,&mut mid,sub.as_ptr(),qos as c_int) };
         if rc == 0 {
-            Ok(TopicMatcher::new(sub,mid))
+            Ok(TopicMatcher::new(sub,mid,self))
         } else {
             Err(Error::new("subscribe",rc))
         }
