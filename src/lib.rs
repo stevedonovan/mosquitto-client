@@ -2,7 +2,7 @@ use std::os::raw::{c_int,c_char};
 use std::ffi::{CStr,CString};
 use std::error;
 use std::fmt;
-use std::time::{Duration,SystemTime};
+use std::time::{Duration,Instant};
 use std::fmt::{Display,Debug};
 use std::ptr::null;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
@@ -249,7 +249,7 @@ impl Mosquitto {
     /// connect to the broker, waiting for success.
     pub fn connect_wait(&self, host: &str, port: u32, millis: i32) -> Result<()> {
         self.connect(host,port)?;
-        let t = SystemTime::now();
+        let t = Instant::now();
         let wait = Duration::from_millis(millis as u64);
         let mut callback = self.callbacks(MOSQ_CONNECT_ERR_TIMEOUT);
         callback.on_connect(|data, rc| {
@@ -260,7 +260,7 @@ impl Mosquitto {
             if callback.data == MOSQ_CONNECT_ERR_OK {
                 return Ok(())
             };
-            if t.elapsed().unwrap() > wait {
+            if t.elapsed() > wait {
                 break;
             }
         }
@@ -322,7 +322,7 @@ impl Mosquitto {
     /// publish an MQTT message to the broker, returning message id after waiting for successful publish
     pub fn publish_wait(&self, topic: &str, payload: &[u8], qos: u32, retain: bool, millis: i32) -> Result<i32> {
         let our_mid = self.publish(topic,payload,qos,retain)?;
-        let t = SystemTime::now();
+        let t = Instant::now();
         let wait = Duration::from_millis(millis as u64);
         let mut callback = self.callbacks(0);
         callback.on_publish(|data, mid| {
@@ -333,7 +333,7 @@ impl Mosquitto {
             if callback.data == our_mid {
                 return Ok(our_mid)
             };
-            if t.elapsed().unwrap() > wait {
+            if t.elapsed() > wait {
                 break;
             }
         }
