@@ -1,3 +1,115 @@
+//! Mosquitto is a popular MQTT broker implemented in C. Although there are pure
+//! Rust MQTT clients, it is still useful to have a binding to the Mosquitto client.
+//!
+//! The basic story is that you connect to a broker, _subscribing_ to topics that
+//! interest you and _publishing_ messages on a particular topic. The messages
+//! may be any arbitrary bytes, but this implementation does require that the topics
+//! themselves be UTF-8.  The C API is based on callbacks, which are mapped onto
+//! Rust closures. Everything starts with [Mosquitto](struct.Mosquitto.html).
+//!
+//! For example, publishing a message and confirming that it is sent:
+//!
+//! ```rust
+//! # fn run() -> std::result::Result<(),Box<std::error::Error>> {
+//! let m = mosquitto_client::Mosquitto::new("test");
+//!
+//! m.connect("localhost",1883)?;
+//!
+//! // publish and get a message id
+//! let our_mid = m.publish("bonzo/dog","hello dolly".as_bytes(), 2, false)?;
+//!
+//! // and wait for confirmation for that message id
+//! let mut mc = m.callbacks(());
+//! mc.on_publish(|_,mid| {
+//!     if mid == our_mid {
+//!         m.disconnect().unwrap();
+//!     }
+//! });
+//!
+//! // wait forever until explicit disconnect
+//! // -1 means use default timeout on operations
+//! m.loop_until_disconnect(-1)?;
+//! # Ok(())
+//! # }
+//! #
+//! # fn main() {
+//! #    run().unwrap();
+//! # }
+//! ```
+//!
+//! Here we subscribe and listen to several topics:
+//!
+//! ```rust,no_run
+//! # fn run() -> std::result::Result<(),Box<std::error::Error>> {
+//! let m = mosquitto_client::Mosquitto::new("test");
+//!
+//! m.connect("localhost",1883)?;
+//! let bonzo = m.subscribe("bonzo/#",0)?;
+//! let frodo = m.subscribe("frodo/#",0)?;
+//!
+//! let mut mc = m.callbacks(());
+//! mc.on_message(|_,msg| {
+//!     if ! msg.retained() { // not interested in any retained messages!
+//!         if bonzo.matches(&msg) {
+//!             println!("bonzo {:?}",msg);
+//!         } else
+//!         if frodo.matches(&msg) {
+//!             println!("frodo {:?}",msg);
+//!         }
+//!     }
+//! });
+//!
+//! m.loop_forever(200)?;
+//! # Ok(())
+//! # }
+//! #
+//! # fn main() {
+//! #    run().unwrap();
+//! # }
+//! ```
+//!
+//! You can always just do a regular match on the recevied topic name
+//! from the [MosqMessage](struct.MosqMessage.html) `topic` method.
+//!
+//! The `callbacks` method can be given a value, and the _first_ argument of any
+//! callback will be a mutable reference to that value (this avoids the usual
+//! shenanigans involved with closures having mutable borrows)
+//!
+//! ```rust
+//! # fn run() -> std::result::Result<(),Box<std::error::Error>> {
+//! use std::{thread,time};
+//!
+//! let m = mosquitto_client::Mosquitto::new("test");
+//!
+//! m.connect("localhost",1883)?;
+//! m.subscribe("bilbo/#",1)?;
+//!
+//! let mt = m.clone();
+//! thread::spawn(move || {
+//!     let timeout = time::Duration::from_millis(500);
+//!     for i in 0..5 {
+//!         let msg = format!("hello #{}",i+1);
+//!         mt.publish("bilbo/baggins",msg.as_bytes(), 1, false).unwrap();
+//!         thread::sleep(timeout);
+//!     }
+//!     mt.disconnect().unwrap();
+//! });
+//!
+//! let mut mc = m.callbacks(Vec::new());
+//! mc.on_message(|data,msg| {
+//!     data.push(msg.text().to_string());
+//! });
+//!
+//! m.loop_until_disconnect(200)?;
+//! assert_eq!(mc.data.len(),5);
+//! # Ok(())
+//! # }
+//! #
+//! # fn main() {
+//! #    run().unwrap();
+//! # }
+//! ```
+//!
 use std::os::raw::{c_int,c_char};
 use std::ffi::{CStr,CString};
 use std::error;
@@ -13,7 +125,8 @@ pub mod sys;
 
 use sys::*;
 
-/// Our Error type
+/// Our Error type.
+/// Covers both regular Mosquitto errors and connection errors.
 #[derive(Debug)]
 pub struct Error {
     text: String,
@@ -64,7 +177,7 @@ fn cs(s: &str) -> CString {
     CString::new(s).expect("Text contained nul bytes")
 }
 
-/// thin wrapper around a mosquitto message
+/// A mosquitto message
 pub struct MosqMessage {
     msg: *const Message,
     owned: bool
@@ -112,7 +225,7 @@ impl MosqMessage {
     }
 
     /// the payload as text.
-    /// This will **panic(( if the payload was not valid UTF-8
+    /// This will **panic** if the payload was not valid UTF-8
     pub fn text(&self) -> &str {
         ::std::str::from_utf8(self.payload()).expect("Payload was not UTF-8")
     }
@@ -124,6 +237,8 @@ impl MosqMessage {
     }
 
     /// was the message retained by the broker?
+    /// True if we received this as a retained message.
+    /// Subsequent messages marked as retained will not set this.
     pub fn retained(&self) -> bool {
         if self.msg_ref().retain > 0 {true} else {false}
     }
@@ -153,7 +268,7 @@ impl Drop for MosqMessage {
 }
 
 /// Matching subscription topics.
-/// Returned from Mosquitto::subscribe.
+/// Returned from [Mosquitto::subscribe](struct.Mosquitto.html#method.subscribe).
 pub struct TopicMatcher<'a> {
     sub: CString,
     /// the subscription id.
@@ -211,15 +326,15 @@ impl <'a>TopicMatcher<'a> {
 
     /// receive and return exactly one message matching this topic
     pub fn receive_one(&self, millis: i32) -> Result<MosqMessage> {
-        self.receive(millis,true).map(|mut v| v.pop().unwrap())
+        self.receive(millis,true).map(|mut v| v.remove(0))
     }
 }
 
 /// Mosquitto version
 pub struct Version {
-    major: u32,
-    minor: u32,
-    revision: u32
+    pub major: u32,
+    pub minor: u32,
+    pub revision: u32
 }
 
 impl Display for Version {
@@ -239,7 +354,7 @@ pub fn version() -> Version {
     Version{major: major as u32,minor: minor as u32,revision: revision as u32}
 }
 
-/// A thin wrapper around mosquitto objects.
+/// Mosquitto client
 pub struct Mosquitto {
     mosq: *const Mosq,
     owned: bool,
@@ -268,7 +383,7 @@ impl Mosquitto {
 
     /// connect to the broker.
     /// You can only be fully sure that a connection succeeds
-    /// after the Callbacks::on_connect callback returns non-zero
+    /// after the [on_connect](struct.Callbacks#method.on_connect) callback returns non-zero
     pub fn connect(&self, host: &str, port: u32) -> Result<()> {
         Error::result("connect",unsafe {
              mosquitto_connect(self.mosq,cs(host).as_ptr(),port as c_int,0)
@@ -297,13 +412,23 @@ impl Mosquitto {
 
     }
 
+    /// call if you wish to use Mosquitto in a multithreaded environment.
+    pub fn threaded(&self) {
+        unsafe { mosquitto_threaded_set(self.mosq,1); }
+    }
 
-    //~ pub fn threaded(&self) {
-        //~ unsafe { mosquitto_threaded_set(self.mosq,1); }
-    //~ }
+    pub fn reconnect_delay_set(&self,delay: u32, delay_max: u32, exponential_backoff: bool) -> Result<()> {
+        Error::result("delay_set",unsafe {
+            mosquitto_reconnect_delay_set(self.mosq,
+                delay as c_int,
+                delay_max as c_int,
+                exponential_backoff as u8
+        )})
+
+    }
 
     /// subscribe to an MQTT topic, with a desired quality-of-service.
-    /// The returned TopicMatcher value can be used to directly match
+    /// The returned value can be used to directly match
     /// against received messages, and has a `mid` field identifying
     /// the subscribing request. on_subscribe will be called with this
     /// identifier.
@@ -318,7 +443,7 @@ impl Mosquitto {
         }
     }
 
-    /// unsubcribe from an MQTT topic - on_unsubscribe will be called.
+    /// unsubcribe from an MQTT topic - `on_unsubscribe` callback will be called.
     pub fn unsubscribe(&self, sub: &str) -> Result<i32> {
         let mut mid = 0;
         let rc = unsafe { mosquitto_unsubscribe(self.mosq,&mut mid, cs(sub).as_ptr()) };
@@ -331,7 +456,7 @@ impl Mosquitto {
 
     /// publish an MQTT message to the broker, returning message id.
     /// Quality-of-service and whether retained can be specified.
-    /// To be sure, check the message id passed to the on_publish callback
+    /// To be sure, check the message id passed to the `on_publish` callback
     pub fn publish(&self, topic: &str, payload: &[u8], qos: u32, retain: bool) -> Result<i32> {
         let mut mid = 0;
 
@@ -385,9 +510,9 @@ impl Mosquitto {
         })
     }
 
-    /// call loop() repeatedly.
+    /// process network events.
     /// This will handle intermittent disconnects for you,
-    /// but will return after an explicit disconnect() call
+    /// but will return after an explicit [disconnect()](#method.disconnect) call
     pub fn loop_forever(&self, timeout: i32) -> Result<()> {
         Error::result("loop_forever",unsafe {
             mosquitto_loop_forever(self.mosq,timeout as c_int,1)
@@ -438,28 +563,7 @@ impl Drop for Mosquitto {
     }
 }
 
-/*
-enum LogLevel {
-    None,
-    Info,
-    Notice,
-    Warning,
-    E
-}
-*/
-
-pub const MOSQ_LOG_NONE:i32 = 0x00;
-pub const MOSQ_LOG_INFO:i32 = 0x01;
-pub const MOSQ_LOG_NOTICE:i32 = 0x02;
-pub const MOSQ_LOG_WARNING:i32 = 0x04;
-pub const MOSQ_LOG_ERR:i32 = 0x08;
-pub const MOSQ_LOG_DEBUG:i32 = 0x10;
-pub const MOSQ_LOG_SUBSCRIBE:i32 = 0x20;
-pub const MOSQ_LOG_UNSUBSCRIBE:i32 = 0x40;
-pub const MOSQ_LOG_ALL:i32 = 0xFFFF;
-
-
-/// handle mosquitto callbacks.
+/// Handling mosquitto callbacks.
 /// This will pass a mutable reference to the
 /// contained data to the callbacks.
 pub struct Callbacks<'a,T> {

@@ -6,7 +6,7 @@ Rust MQTT clients, it is still useful to have a binding to the Mosquitto client.
 The basic story is that you connect to a broker, _subscribing_ to topics that
 interest you and _publishing_ messages on a particular topic. The messages
 may be any arbitrary bytes, but this implementation does require that the topics
-themselves be UTF-*.  The C API is based on callbacks, which are mapped onto
+themselves be UTF-8.  The C API is based on callbacks, which are mapped onto
 Rust closures.
 
 The Mosquitto client is thread-safe, so you can publish from one thread and listen
@@ -19,10 +19,10 @@ use std::{thread, time};
 
 fn main() {
     let m = Mosquitto::new("test");
-    
+
     m.connect("localhost",1883).expect("can't connect");
     m.subscribe("bilbo/#",1).expect("can't subscribe to bonzo");
-    
+
     let mt = m.clone();
     thread::spawn(move || {
         let timeout = time::Duration::from_millis(500);
@@ -32,13 +32,13 @@ fn main() {
         }
         mt.disconnect().unwrap();
     });
-    
+
     let mut mc = m.callbacks(0);
     mc.on_message(|data,msg| {
         println!("bilbo {:?}",msg);
         *data += 1;
     });
-    
+
     m.loop_until_disconnect(200).expect("broken loop");
     println!("received {} messages",mc.data);
 }

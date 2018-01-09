@@ -109,6 +109,8 @@ extern {
 
     pub fn mosquitto_topic_matches_sub(sub: *const c_char, topic: *const c_char, result: *mut u8);
 
+    pub fn mosquitto_reconnect_delay_set(mosq: *const Mosq, reconnect_delay: c_int, reconnect_delay_max: c_int, reconnect_exponential_backoff: u8) -> c_int;
+
 }
 
 pub fn mosq_strerror(rc: c_int) -> String {
