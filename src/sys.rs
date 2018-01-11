@@ -104,6 +104,11 @@ extern {
     pub fn mosquitto_publish(mosq: *const Mosq, mid: *mut c_int, topic: *const c_char,
         payloadlen: c_int, payload: *const u8, qos: c_int, retain: u8) -> c_int;
 
+    pub fn mosquitto_will_set(mosq: *const Mosq, topic: *const c_char,
+        payloadlen: c_int, payload: *const u8, qos: c_int, retain: u8) -> c_int;
+
+    pub fn mosquitto_will_clear(mosq: *const Mosq) -> c_int;
+
     pub fn mosquitto_loop(mosq: *const Mosq, timeout: c_int, max_packets: c_int) -> c_int;
     pub fn mosquitto_loop_forever(mosq: *const Mosq, timeout: c_int, max_packets: c_int) -> c_int;
 

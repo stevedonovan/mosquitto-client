@@ -473,6 +473,20 @@ impl Mosquitto {
         }
     }
 
+    pub fn will_set(&self, topic: &str, payload: &[u8], qos: u32, retain: bool) -> Result<()> {
+        Error::result("will_set",unsafe { mosquitto_will_set(
+            self.mosq, cs(topic).as_ptr(),
+            payload.len() as c_int,payload.as_ptr(),
+            qos as c_int, if retain {1} else {0}
+        )})
+    }
+
+    pub fn will_clear(&self) -> Result<()> {
+        Error::result("will_clear",unsafe {
+            mosquitto_will_clear(self.mosq)
+        })
+    }
+
     /// publish an MQTT message to the broker, returning message id after waiting for successful publish
     pub fn publish_wait(&self, topic: &str, payload: &[u8], qos: u32, retain: bool, millis: i32) -> Result<i32> {
         let our_mid = self.publish(topic,payload,qos,retain)?;
