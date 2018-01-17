@@ -114,6 +114,7 @@ use std::os::raw::{c_int,c_char};
 use std::ffi::{CStr,CString};
 use std::error;
 use std::fmt;
+use std::path::Path;
 use std::time::{Duration,Instant};
 use std::fmt::{Display,Debug};
 use std::ptr::null;
@@ -175,6 +176,11 @@ impl error::Error for Error {
 
 fn cs(s: &str) -> CString {
     CString::new(s).expect("Text contained nul bytes")
+}
+
+// note: this does not feel right - must be a way
+fn cpath(p: &Path) -> CString {
+    cs(p.to_str().expect("Non UTF-8 filename"))
 }
 
 /// A mosquitto message
@@ -546,6 +552,38 @@ impl Mosquitto {
         }
     }
 
+    /// Set TLS parameters
+    /// `cafile` is a file containing the PEM encoded trusted CA certificate
+    /// `certfile` is a file containing the PEM encoded certificate file for this client.
+    /// `keyfile` is a file containing the PEM encoded private key for this client.
+    /// `password` if the private key is encrypted
+    pub fn tls_set<P1,P2,P3>(&self, cafile: P1, certfile: P2, keyfile: P3, password: &str) -> Result<()>
+    where P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path> {
+        Error::result("tls_set",unsafe {
+            // Yes, this is awful
+            PASSWORD_PTR = cs(password).into_raw();
+            PASSWORD_SIZE = password.len();
+            mosquitto_tls_set(self.mosq,
+                cpath(cafile.as_ref()).as_ptr(),null() as *const c_char,
+                cpath(certfile.as_ref()).as_ptr(),cpath(keyfile.as_ref()).as_ptr(),
+                Some(mosq_password_callback)
+            )
+        })
+
+    }
+
+}
+
+static mut PASSWORD_PTR: *const c_char = 0 as *const c_char;
+static mut PASSWORD_SIZE: usize = 0;
+
+use std::ptr;
+
+extern fn mosq_password_callback(buf: *mut c_char, _size: c_int, _rwflag: c_int, _userdata: *mut Data)->c_int {
+    unsafe {
+        ptr::copy(PASSWORD_PTR, buf, PASSWORD_SIZE+1);
+        PASSWORD_SIZE as c_int
+    }
 }
 
 // mosquitto is thread-safe, so let's tell Rust about it
