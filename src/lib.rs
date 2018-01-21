@@ -557,20 +557,43 @@ impl Mosquitto {
     /// `certfile` is a file containing the PEM encoded certificate file for this client.
     /// `keyfile` is a file containing the PEM encoded private key for this client.
     /// `password` if the private key is encrypted
-    pub fn tls_set<P1,P2,P3>(&self, cafile: P1, certfile: P2, keyfile: P3, password: &str) -> Result<()>
+    pub fn tls_set<P1,P2,P3>(&self, cafile: P1, certfile: P2, keyfile: P3, passphrase: Option<&str>) -> Result<()>
     where P1: AsRef<Path>, P2: AsRef<Path>, P3: AsRef<Path> {
         Error::result("tls_set",unsafe {
             // Yes, this is awful
-            PASSWORD_PTR = cs(password).into_raw();
-            PASSWORD_SIZE = password.len();
+            let callback = if let Some(passphrase) = passphrase {
+                PASSWORD_PTR = cs(passphrase).into_raw();
+                PASSWORD_SIZE = passphrase.len();
+                true
+            } else {
+                false
+            };
             mosquitto_tls_set(self.mosq,
                 cpath(cafile.as_ref()).as_ptr(),null() as *const c_char,
                 cpath(certfile.as_ref()).as_ptr(),cpath(keyfile.as_ref()).as_ptr(),
-                Some(mosq_password_callback)
+                if callback {Some(mosq_password_callback)} else {None}
             )
         })
 
     }
+
+    /// Set TLS PSK parameters
+    /// `psk` is the pre-shared-key in hex format with no leading "0x"
+    /// `identity` is the identity of this client. May be used as the username
+    /// `ciphers` is an optional string describing the PSK ciphers available for use
+    pub fn tls_psk_set(&self, psk: &str, identity: &str, ciphers: Option<&str>) -> Result<()> {
+        Error::result("tls_psk_set",unsafe {
+            let cipher;
+            let cipher_ptr = if let Some(ciphers) = ciphers {
+                cipher = cs(ciphers);
+                cipher.as_ptr()
+            } else {
+                null() as *const c_char
+            };
+            mosquitto_tls_psk_set(self.mosq,cs(psk).as_ptr(),cs(identity).as_ptr(),cipher_ptr)
+        })
+    }
+
 
 }
 

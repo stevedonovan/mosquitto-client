@@ -117,14 +117,12 @@ extern {
 
     pub fn mosquitto_reconnect_delay_set(mosq: *const Mosq, reconnect_delay: c_int, reconnect_delay_max: c_int, reconnect_exponential_backoff: u8) -> c_int;
 
-//~ libmosq_EXPORT int mosquitto_tls_set(struct mosquitto *mosq,
-		//~ const char *cafile, const char *capath,
-		//~ const char *certfile, const char *keyfile,
-		//~ int (*pw_callback)(char *buf, int size, int rwflag, void *userdata));
-
     pub fn mosquitto_tls_set(mosq: *const Mosq,
         cafile: *const c_char, capath: *const c_char, certfile: *const c_char, keyfile: *const c_char,
         pw_callback: Option<PwCallback>) -> c_int;
+
+    pub fn mosquitto_tls_psk_set(mosq: *const Mosq,
+        psk: *const c_char, identity: *const c_char, ciphers: *const c_char) -> c_int;
 }
 
 pub fn mosq_strerror(rc: c_int) -> String {
