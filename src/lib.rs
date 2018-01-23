@@ -423,6 +423,13 @@ impl Mosquitto {
         unsafe { mosquitto_threaded_set(self.mosq,1); }
     }
 
+    /// reconnect to the broker
+    pub fn reconnect(&self) -> Result<()> {
+        Error::result("reconnect",unsafe {
+            mosquitto_reconnect(self.mosq)
+        })
+    }
+
     pub fn reconnect_delay_set(&self,delay: u32, delay_max: u32, exponential_backoff: bool) -> Result<()> {
         Error::result("delay_set",unsafe {
             mosquitto_reconnect_delay_set(self.mosq,
