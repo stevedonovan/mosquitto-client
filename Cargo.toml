@@ -1,6 +1,6 @@
 [package]
 name = "mosquitto-client"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Steve Donovan <steved@eiq.co.za>"]
 
 description = "Rust interface to the Mosquitto MQTT broker client"
