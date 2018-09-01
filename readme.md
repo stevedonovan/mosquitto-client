@@ -54,3 +54,16 @@ event-specific data - in this case a message struct.
 
 `loop_until_disconnect` is a relative of `loop_forever` which ends without error if we
 explicitly disconnect from the broker.
+
+## Prerequisites
+
+On Debian/Ubuntu systems, will require the client `libmosquitto1` to be installed (the dev package is
+not needed).  (On RPM-based systems, it will just be `libmosquitto`).
+
+You will also need the broker `mosquitto` package for testing.
+
+For MacOS, Mosquitto is available through **brew**:
+
+```
+brew install mosquitto
+```
