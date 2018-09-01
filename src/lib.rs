@@ -371,11 +371,19 @@ impl Mosquitto {
     /// create a new mosquitto instance, providing a client name.
     /// Clients connecting to a broker must have unique names
     pub fn new(id: &str) -> Mosquitto {
+        Mosquitto::new_session(id, true)
+    }
+
+    /// create a new mosquitto instance with specified clean session flag.
+    /// Clients connecting to a broker must have unique names
+    pub fn new_session(id: &str, clean_session: bool) -> Mosquitto {
         if INSTANCES.fetch_add(1, Ordering::SeqCst) == 0 {
             // println!("initializing mosq");
             unsafe { mosquitto_lib_init(); }
         }
-        let mosq = unsafe { mosquitto_new(cs(id).as_ptr(),1,null()) };
+        let mosq = unsafe {
+            mosquitto_new(cs(id).as_ptr(),if clean_session {1} else {0},null())
+        };
         Mosquitto{
             mosq: mosq,
             owned: true
