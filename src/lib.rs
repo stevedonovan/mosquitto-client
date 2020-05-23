@@ -118,9 +118,9 @@ use std::path::Path;
 use std::time::{Duration,Instant};
 use std::fmt::{Display,Debug};
 use std::ptr::null;
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-static INSTANCES: AtomicUsize = ATOMIC_USIZE_INIT;
+static INSTANCES: AtomicUsize = AtomicUsize::new(0);
 
 pub mod sys;
 
@@ -293,7 +293,7 @@ impl <'a>TopicMatcher<'a> {
         unsafe {
              mosquitto_topic_matches_sub(self.sub.as_ptr(),msg.msg_ref().topic, &mut matched);
         }
-        if matched > 0 {true} else {false}
+        matched > 0
     }
 
     fn receive(&self, millis: i32, just_one: bool) -> Result<Vec<MosqMessage>> {
@@ -456,7 +456,7 @@ impl Mosquitto {
     pub fn subscribe<'a>(&'a self, sub: &str, qos: u32) -> Result<TopicMatcher<'a>> {
         let mut mid: c_int = 0;
         let sub = cs(sub);
-        let rc = unsafe { mosquitto_subscribe(self.mosq,&mut mid,sub.as_ptr(),qos as c_int) };
+        let rc = unsafe { mosquitto_subscribe(self.mosq, &mut mid,sub.as_ptr(), qos as c_int) };
         if rc == 0 {
             Ok(TopicMatcher::new(sub,mid,self))
         } else {
@@ -467,7 +467,7 @@ impl Mosquitto {
     /// unsubcribe from an MQTT topic - `on_unsubscribe` callback will be called.
     pub fn unsubscribe(&self, sub: &str) -> Result<i32> {
         let mut mid = 0;
-        let rc = unsafe { mosquitto_unsubscribe(self.mosq,&mut mid, cs(sub).as_ptr()) };
+        let rc = unsafe { mosquitto_unsubscribe(self.mosq, &mut mid, cs(sub).as_ptr()) };
         if rc == 0 {
             Ok(mid as i32)
         } else {
@@ -481,11 +481,16 @@ impl Mosquitto {
     pub fn publish(&self, topic: &str, payload: &[u8], qos: u32, retain: bool) -> Result<i32> {
         let mut mid = 0;
 
-        let rc = unsafe { mosquitto_publish(
-            self.mosq,&mut mid, cs(topic).as_ptr(),
-            payload.len() as c_int,payload.as_ptr(),
-            qos as c_int, if retain {1} else {0}
-        )};
+        let rc = unsafe {
+            mosquitto_publish(
+                self.mosq,
+                &mut mid,
+                cs(topic).as_ptr(),
+                payload.len() as c_int,payload.as_ptr(),
+                qos as c_int,
+                retain as u8
+            )
+        };
 
         if rc == 0 {
             Ok(mid as i32)
@@ -510,7 +515,7 @@ impl Mosquitto {
 
     /// publish an MQTT message to the broker, returning message id after waiting for successful publish
     pub fn publish_wait(&self, topic: &str, payload: &[u8], qos: u32, retain: bool, millis: i32) -> Result<i32> {
-        let our_mid = self.publish(topic,payload,qos,retain)?;
+        let our_mid = self.publish(topic, payload, qos, retain)?;
         let t = Instant::now();
         let wait = Duration::from_millis(millis as u64);
         let mut callback = self.callbacks(0);
@@ -550,7 +555,7 @@ impl Mosquitto {
     /// but will return after an explicit [disconnect()](#method.disconnect) call
     pub fn loop_forever(&self, timeout: i32) -> Result<()> {
         Error::result("loop_forever",unsafe {
-            mosquitto_loop_forever(self.mosq,timeout as c_int,1)
+            mosquitto_loop_forever(self.mosq, timeout as c_int, 1)
         })
     }
 
@@ -657,13 +662,13 @@ impl Drop for Mosquitto {
 /// This will pass a mutable reference to the
 /// contained data to the callbacks.
 pub struct Callbacks<'a,T> {
-    message_callback: Option<Box<Fn(&mut T,MosqMessage) + 'a>>,
-    connect_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    publish_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    subscribe_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    unsubscribe_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    disconnect_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    log_callback: Option<Box<Fn(&mut T,u32,&str) + 'a>>,
+    message_callback: Option<Box<dyn Fn(&mut T,MosqMessage) + 'a>>,
+    connect_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    publish_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    subscribe_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    unsubscribe_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    disconnect_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    log_callback: Option<Box<dyn Fn(&mut T,u32,&str) + 'a>>,
     mosq: &'a Mosquitto,
     init: bool,
     pub data: T,
