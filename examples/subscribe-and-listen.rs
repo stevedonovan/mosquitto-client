@@ -6,7 +6,7 @@ fn main() {
 
     m.will_set("test/will",b"finished!",0,false).expect("can't set will");
 
-    m.connect("localhost",1883).expect("can't connect");
+    m.connect("localhost",1883,5).expect("can't connect");
     let bonzo = m.subscribe("bonzo/#",0).expect("can't subscribe to bonzo");
     let frodo = m.subscribe("frodo/#",0).expect("can't subscribe to frodo");
 

@@ -5,7 +5,7 @@ use std::{thread, time};
 fn main() {
     let m = Mosquitto::new("test");
     
-    m.connect("localhost",1883).expect("can't connect");
+    m.connect("localhost",1883,5).expect("can't connect");
     m.subscribe("bilbo/#",1).expect("can't subscribe to bonzo");
     
     let mt = m.clone();
