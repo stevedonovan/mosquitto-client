@@ -10,10 +10,10 @@
 //! For example, publishing a message and confirming that it is sent:
 //!
 //! ```rust
-//! # fn run() -> std::result::Result<(),Box<std::error::Error>> {
+//! # fn run() -> std::result::Result<(),Box<dyn std::error::Error>> {
 //! let m = mosquitto_client::Mosquitto::new("test");
 //!
-//! m.connect("localhost",1883)?;
+//! m.connect("localhost",1883,5)?;
 //!
 //! // publish and get a message id
 //! let our_mid = m.publish("bonzo/dog","hello dolly".as_bytes(), 2, false)?;
@@ -40,10 +40,10 @@
 //! Here we subscribe and listen to several topics:
 //!
 //! ```rust,no_run
-//! # fn run() -> std::result::Result<(),Box<std::error::Error>> {
+//! # fn run() -> std::result::Result<(),Box<dyn std::error::Error>> {
 //! let m = mosquitto_client::Mosquitto::new("test");
 //!
-//! m.connect("localhost",1883)?;
+//! m.connect("localhost",1883,5)?;
 //! let bonzo = m.subscribe("bonzo/#",0)?;
 //! let frodo = m.subscribe("frodo/#",0)?;
 //!
@@ -76,12 +76,12 @@
 //! shenanigans involved with closures having mutable borrows)
 //!
 //! ```rust
-//! # fn run() -> std::result::Result<(),Box<std::error::Error>> {
+//! # fn run() -> std::result::Result<(),Box<dyn std::error::Error>> {
 //! use std::{thread,time};
 //!
 //! let m = mosquitto_client::Mosquitto::new("test");
 //!
-//! m.connect("localhost",1883)?;
+//! m.connect("localhost",1883,10)?;
 //! m.subscribe("bilbo/#",1)?;
 //!
 //! let mt = m.clone();
@@ -118,9 +118,9 @@ use std::path::Path;
 use std::time::{Duration,Instant};
 use std::fmt::{Display,Debug};
 use std::ptr::null;
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-static INSTANCES: AtomicUsize = ATOMIC_USIZE_INIT;
+static INSTANCES: AtomicUsize = AtomicUsize::new(0);
 
 pub mod sys;
 
@@ -398,15 +398,15 @@ impl Mosquitto {
     /// connect to the broker.
     /// You can only be fully sure that a connection succeeds
     /// after the [on_connect](struct.Callbacks#method.on_connect) callback returns non-zero
-    pub fn connect(&self, host: &str, port: u32) -> Result<()> {
+    pub fn connect(&self, host: &str, port: u32, keep_alive: u32) -> Result<()> {
         Error::result("connect",unsafe {
-             mosquitto_connect(self.mosq,cs(host).as_ptr(),port as c_int,0)
+             mosquitto_connect(self.mosq,cs(host).as_ptr(),port as c_int, keep_alive as c_int)
         })
     }
 
     /// connect to the broker, waiting for success.
-    pub fn connect_wait(&self, host: &str, port: u32, millis: i32) -> Result<()> {
-        self.connect(host,port)?;
+    pub fn connect_wait(&self, host: &str, port: u32, keep_alive: u32, millis: i32) -> Result<()> {
+        self.connect(host,port,keep_alive)?;
         let t = Instant::now();
         let wait = Duration::from_millis(millis as u64);
         let mut callback = self.callbacks(MOSQ_CONNECT_ERR_TIMEOUT);
@@ -657,13 +657,13 @@ impl Drop for Mosquitto {
 /// This will pass a mutable reference to the
 /// contained data to the callbacks.
 pub struct Callbacks<'a,T> {
-    message_callback: Option<Box<Fn(&mut T,MosqMessage) + 'a>>,
-    connect_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    publish_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    subscribe_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    unsubscribe_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    disconnect_callback: Option<Box<Fn(&mut T,i32) + 'a>>,
-    log_callback: Option<Box<Fn(&mut T,u32,&str) + 'a>>,
+    message_callback: Option<Box<dyn Fn(&mut T,MosqMessage) + 'a>>,
+    connect_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    publish_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    subscribe_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    unsubscribe_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    disconnect_callback: Option<Box<dyn Fn(&mut T,i32) + 'a>>,
+    log_callback: Option<Box<dyn Fn(&mut T,u32,&str) + 'a>>,
     mosq: &'a Mosquitto,
     init: bool,
     pub data: T,

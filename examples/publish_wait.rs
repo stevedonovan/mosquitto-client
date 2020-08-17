@@ -10,12 +10,12 @@ fn as_millis(d: Duration) -> f64 {
 
 const TIMEOUT: i32 = 300;
 
-fn run() -> Result<(),Box<std::error::Error>> {
+fn run() -> Result<(),Box<dyn std::error::Error>> {
     let m = Mosquitto::new("test");
 
     let t = Instant::now();
 
-    m.connect_wait("localhost",1883,TIMEOUT)?;
+    m.connect_wait("localhost",1883,5,TIMEOUT)?;
     m.publish_wait("/bonzo/dog",b"hello dolly",2,false,TIMEOUT)?;
     m.publish_wait("/bonzo/cat",b"meeeaaaww",2,false,TIMEOUT)?;
     println!("elapsed {:.2} msec",as_millis(t.elapsed()));
