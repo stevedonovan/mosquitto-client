@@ -404,6 +404,14 @@ impl Mosquitto {
         })
     }
 
+    /// set username and password.
+    /// This should be done before connecting
+    pub fn username_pw_set(&self, username: &str, password: &str) -> Result<()> {
+        Error::result("username_pw_set", unsafe {
+            mosquitto_username_pw_set(self.mosq,cs(username).as_ptr(), cs(password).as_ptr())
+        })
+    }
+
     /// connect to the broker, waiting for success.
     pub fn connect_wait(&self, host: &str, port: u32, millis: i32) -> Result<()> {
         self.connect(host,port)?;

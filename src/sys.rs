@@ -70,6 +70,7 @@ extern {
     pub fn mosquitto_strerror(err: c_int) -> *const c_char;
     pub fn mosquitto_user_data_set(mosq: *const Mosq, obj: *const Data);
     pub fn mosquitto_threaded_set(mosq: *const Mosq, threaded: u8) -> c_int;
+    pub fn mosquitto_username_pw_set(mosq: *const Mosq, username: *const c_char, password: *const c_char) -> c_int;
 
     pub fn mosquitto_connect_callback_set(mosq: *const Mosq,
         callback: extern fn(*const Mosq, *mut Data, c_int)
